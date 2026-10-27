@@ -9,7 +9,7 @@ public sealed class ConversationService(IHubSessionFactory sessions, IConversati
         var values = await db.ListAsync(db.Settings.Where(s => s.Key.StartsWith(prefix)).Select(s => s.Value), ct);
         var pins = values.Where(v => Guid.TryParse(v, out _)).Select(Guid.Parse).ToList();
         return await db.ListAsync(db.Conversations.Where(c => c.UserId == owner)
-            .OrderByDescending(c => pins.Contains(c.Id)).ThenByDescending(c => c.CreatedAt)
+            .OrderByDescending(c => pins.Contains(c.Id)).ThenByDescending(c => c.CreatedAt).ThenBy(c => c.Id)
             .Select(c => new ConversationSummary(c.Id, c.Title, c.ActiveRunId, c.CreatedAt, pins.Contains(c.Id))).Take(100), ct);
     }
 

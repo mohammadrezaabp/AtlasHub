@@ -8,6 +8,7 @@ using Hub.Web.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.AddHubInfrastructure("atlas-knowledge-hub");
+builder.AddRealtimeDelivery();
 builder.Services.AddRazorComponents();
 builder.Services.AddHostedService<AgentWorker>();
 builder.AddWebSecurity();
@@ -32,5 +33,6 @@ ConversationEndpoints.Map(api);
 WorkspaceEndpoints.Map(api);
 AdminEndpoints.Map(api);
 SpeechEndpoints.Map(api);
+RealtimeEndpoints.Map(api);
 app.MapRazorComponents<App>();
 app.Run();

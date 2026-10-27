@@ -48,6 +48,7 @@ src/
     Agents/          Rewrite, evidence, prompt building, tools and answer flow
     Speech/          Conversation ownership and private audio persistence
     Monitoring/     Overview, model roles, metrics and budget accounting
+    Realtime/       Authorized projections, fingerprints, patches and synchronization
     Configuration/  Validated feature and budget options
     Common/         Shared application errors, serialization and activity source
   Hub.Infrastructure/
@@ -61,6 +62,7 @@ src/
     Events/          Durable event append and best-effort Redis mirror
     Caching/         Redis connection lifecycle
     Monitoring/      Actual dependency health checks
+    Realtime/        Redis notifications, scoped projection cache and outbox dispatcher
   Hub.Web/
     Endpoints/       Thin endpoints grouped by feature
     Contracts/       HTTP input contracts grouped by feature
@@ -113,6 +115,8 @@ Passage replacement commits all new passages and document metadata in one transa
 
 The refactor preserves relational table/column names, provider configuration, embedding collection names, object paths and API routes. It does not require resetting the database or reindexing existing knowledge. Schema initialization remains in the web startup composition root. Future schema changes require an explicit migration plan.
 
+Realtime delivery adds an isolated `RealtimeOutbox` table and index through an additive startup upgrade. Existing records and indexes are preserved. Business writes and their notifications commit together. The web host dispatches committed changes through Redis; consumers always reload authorized data. See [the realtime protocol](realtime.md) for scopes, replay, fallback, revocation and client recovery.
+
 ## Adding a feature
 
 1. Put invariants and business vocabulary in the relevant Domain feature. Keep I/O out of aggregates.
@@ -127,6 +131,7 @@ The refactor preserves relational table/column names, provider configuration, em
 dotnet build AtlasHub.slnx -c Release
 dotnet test AtlasHub.slnx -c Release
 dotnet format AtlasHub.slnx --verify-no-changes --no-restore
+node --test tests/Hub.Browser.Tests/*.test.js
 ```
 
 Integration tests use a fresh SQLite database and isolated local storage. Provider workflow tests substitute model and speech ports so tests do not consume external credits. Docker verification additionally exercises PostgreSQL, MinIO, Redis, Qdrant, the internal tool service and the model gateway against the actual deployment.

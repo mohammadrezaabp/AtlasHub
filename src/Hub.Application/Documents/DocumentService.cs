@@ -8,7 +8,7 @@ public sealed class DocumentService(IHubSessionFactory sessions, IFileStore file
     public async Task<IReadOnlyList<DocumentSummary>> List(HubUser user, CancellationToken ct)
     {
         await using var db = await sessions.CreateAsync(ct);
-        return await db.ListAsync(db.Documents.VisibleTo(user).OrderByDescending(d => d.CreatedAt).Select(d =>
+        return await db.ListAsync(db.Documents.VisibleTo(user).OrderByDescending(d => d.CreatedAt).ThenBy(d => d.Id).Select(d =>
             new DocumentSummary(d.Id, d.Title, d.FileName, d.Status, d.Error, d.Visibility, d.Department, d.ChunkCount, d.CreatedAt, user.Role == UserRoles.Administrator || d.OwnerId == user.Id)), ct);
     }
 
