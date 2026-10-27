@@ -10,7 +10,7 @@ Review date: 2026-10-27. Scope: repository contents, application trust boundarie
 | Indexed file contents compared with configured local credential values | No matches; credential values are never printed |
 | Publication paths | Environment secrets, runtime data, seed documents, backups, credentials, build outputs and local tooling excluded |
 | Direct and transitive NuGet advisory audit against nuget.org | No known vulnerable packages reported at review time |
-| Release regression suite | 41 passing tests |
+| Release regression suite | 42 passing tests |
 | Authentication and sessions | Unauthorized API reads rejected; CSRF, lockout, account disablement and password-change revocation covered |
 | Document, run and voice ownership | Private/team retrieval, protected downloads, image evidence and owner-scoped voice playback covered |
 | Administrator privileges | Approval, system/model and team-management permissions enforced by the server |

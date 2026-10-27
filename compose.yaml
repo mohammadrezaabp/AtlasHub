@@ -88,6 +88,7 @@ services:
       <<: [*common, *storage]
       Bootstrap__Email: ${ADMIN_EMAIL}
       Bootstrap__Password: ${ADMIN_PASSWORD}
+      Security__KeyPath: /data/keys
       Deepgram__ApiKey: ${DEEPGRAM_API_KEY}
       Features__Vision: "true"
       Features__Speech: "true"
