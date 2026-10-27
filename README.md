@@ -44,7 +44,7 @@ Or use `docker compose up -d --build`. Open **[http://localhost:5080](http://loc
 
 If the .NET SDK is available locally, `./scripts/Start-Hub.ps1 -Prebuilt` publishes the C# services on your computer and packages them in the same Docker runtime. This avoids downloading the larger SDK container image. Both modes run the application services in Docker with the same database and storage volumes.
 
-The PostgreSQL image is `postgres:16-alpine`; Redis is `redis:7.4-alpine` and Qdrant is `qdrant/qdrant:v1.15.4`. Docker reuses locally available matching images. You can replace the registry prefix if needed. The app and the authenticated MinIO console bind only to loopback. Database, cache, vector store, object API, gateway and tool ports stay on the internal Docker network. The console is available at [http://localhost:19001](http://localhost:19001), using `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. Set `MINIO_IMAGE` to reuse a matching local image and `MINIO_CONSOLE_PORT` to change the console port.
+The project uses upstream images: PostgreSQL is `postgres:16-alpine`, Redis is `redis:7.4-alpine`, Qdrant is `qdrant/qdrant:v1.15.4`, and MinIO is `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z`. Docker reuses locally available matching images. The app and the authenticated MinIO console bind only to loopback. Database, cache, vector store, object API, gateway and tool ports stay on the internal Docker network. The console is available at [http://localhost:19001](http://localhost:19001), using `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. Set `MINIO_IMAGE` to select another compatible upstream MinIO image and `MINIO_CONSOLE_PORT` to change the console port.
 
 Stop the stack with `./scripts/Stop-Hub.ps1`. Persistent volumes retain documents, database rows, Redis events, vectors and authentication keys. Avoid deleting volumes unless you intend to erase workspace data.
 
@@ -62,7 +62,7 @@ Stop the stack with `./scripts/Stop-Hub.ps1`. Persistent volumes retain document
 | `DAILY_BUDGET_USD`, `MAX_REQUEST_USD` | `1.00`, `0.05` | OpenRouter cost admission limits |
 | `HUB_PORT` | `5080` | Loopback application port |
 | `MINIO_CONSOLE_PORT` | `19001` | Loopback storage console port |
-| `MINIO_IMAGE` | Pinned tag in `.env.example` | Reuse a compatible local image or registry mirror |
+| `MINIO_IMAGE` | Pinned tag in `.env.example` | Select a compatible upstream MinIO image |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Empty | Optional collector endpoint; requires observability profile |
 
 Compose maps these values into .NET hierarchical settings such as `Models__Chat` and `Storage__SecretKey`. Secrets are runtime environment values, not Docker build arguments. The Docker build context excludes local credentials and data. After editing configuration, recreate containers with `docker compose up -d --build`.
