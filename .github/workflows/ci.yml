@@ -18,6 +18,9 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.x
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
       - name: Check publication boundaries
         shell: pwsh
         run: ./scripts/Test-PublishSafety.ps1
@@ -38,6 +41,8 @@ jobs:
       - run: dotnet restore AtlasHub.slnx
       - run: dotnet build AtlasHub.slnx --configuration Release --no-restore
       - run: dotnet test AtlasHub.slnx --configuration Release --no-build --no-restore
+      - name: Test browser synchronization and patch safety
+        run: node --test tests/Hub.Browser.Tests/*.test.js
       - run: dotnet format AtlasHub.slnx --verify-no-changes --no-restore --verbosity quiet
       - name: Audit direct and transitive packages
         shell: pwsh

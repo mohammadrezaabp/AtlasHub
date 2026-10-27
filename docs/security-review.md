@@ -10,7 +10,7 @@ Review date: 2026-10-27. Scope: repository contents, application trust boundarie
 | Indexed file contents compared with configured local credential values | No matches; credential values are never printed |
 | Publication paths | Environment secrets, runtime data, seed documents, backups, credentials, build outputs and local tooling excluded |
 | Direct and transitive NuGet advisory audit against nuget.org | No known vulnerable packages reported at review time |
-| Release regression suite | 41 passing tests |
+| Release regression suite | 55 backend tests and 14 browser tests passing |
 | Authentication and sessions | Unauthorized API reads rejected; CSRF, lockout, account disablement and password-change revocation covered |
 | Document, run and voice ownership | Private/team retrieval, protected downloads, image evidence and owner-scoped voice playback covered |
 | Administrator privileges | Approval, system/model and team-management permissions enforced by the server |
@@ -20,6 +20,8 @@ Review date: 2026-10-27. Scope: repository contents, application trust boundarie
 | Runtime isolation | Non-root app containers; database, object API, cache, vectors, gateway and tools have no published host ports |
 
 ## Publication safeguards
+
+Realtime checks additionally cover revocation of already-open streams, user-scoped cache state, hidden-view suppression, unsafe patch paths, stale-base recovery and missed notifications. [Realtime design](realtime.md) documents the bounded recheck and the limits of withdrawing already delivered information.
 
 The repository has explicit private-path exclusions, an index-based publication check, local pre-commit and pre-push hooks, and CI secret scans across all reachable Git history. The local index check also compares contents with credentials in `.env` when that file exists; CI performs pattern-based scanning without loading user secrets. GitHub Actions use read-only repository permissions and immutable action commit references. Dependabot proposes dependency updates.
 

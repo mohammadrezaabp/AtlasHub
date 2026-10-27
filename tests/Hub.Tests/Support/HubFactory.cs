@@ -10,9 +10,11 @@ public sealed class HubFactory : WebApplicationFactory<Program>
 {
     readonly string directory = Path.Combine(Path.GetTempPath(), "atlas-test-" + Guid.NewGuid());
     private readonly bool backgroundWorkers;
-    public HubFactory(bool backgroundWorkers = true)
+    private readonly bool realtimeDelivery;
+    public HubFactory(bool backgroundWorkers = true, bool realtimeDelivery = true)
     {
         this.backgroundWorkers = backgroundWorkers;
+        this.realtimeDelivery = realtimeDelivery;
         Directory.CreateDirectory(directory);
     }
     protected override void ConfigureWebHost(IWebHostBuilder b)
@@ -33,6 +35,11 @@ public sealed class HubFactory : WebApplicationFactory<Program>
         }));
         b.ConfigureServices(services =>
         {
+            if (!realtimeDelivery)
+            {
+                foreach (var worker in services.Where(s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(Hub.Infrastructure.Realtime.ChangeOutboxDispatcher)).ToList())
+                    services.Remove(worker);
+            }
             if (!backgroundWorkers)
             {
                 foreach (var worker in services.Where(s => s.ServiceType == typeof(IHostedService) && s.ImplementationType == typeof(AgentWorker)).ToList())
