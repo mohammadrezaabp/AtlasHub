@@ -1,3 +1,4 @@
+using Hub.Application.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hub.Infrastructure.Persistence.Repositories;
@@ -12,10 +13,15 @@ public sealed class DocumentIndexStore(IDbContextFactory<HubDb> factory) : IDocu
             .OrderBy(d => d.CreatedAt).FirstOrDefaultAsync(ct);
         if (candidate == null) return null;
         candidate.BeginIndexing(now);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         var claimed = await db.Documents.Where(d => d.Id == candidate.Id && (d.Status == DocumentStatus.Queued || (d.Status == DocumentStatus.Indexing && d.LeaseUntil < now)))
             .ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, candidate.Status).SetProperty(d => d.LeaseUntil, candidate.LeaseUntil)
                 .SetProperty(d => d.Attempts, candidate.Attempts), ct);
-        return claimed == 0 ? null : await db.Documents.AsNoTracking().SingleAsync(d => d.Id == candidate.Id, ct);
+        if (claimed == 0) return null;
+        db.QueueRealtimeChange(RealtimeTopics.Documents);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return await db.Documents.AsNoTracking().SingleAsync(d => d.Id == candidate.Id, ct);
     }
 
     public async Task Complete(Guid id, IReadOnlyCollection<Chunk> chunks, string? embeddingError, CancellationToken ct)
@@ -34,7 +40,11 @@ public sealed class DocumentIndexStore(IDbContextFactory<HubDb> factory) : IDocu
     public async Task Fail(Guid id, string error, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.Documents.Where(d => d.Id == id).ExecuteUpdateAsync(s => s.SetProperty(d => d.Status, DocumentStatus.Failed)
             .SetProperty(d => d.Error, error).SetProperty(d => d.LeaseUntil, (DateTime?)null), ct);
+        db.QueueRealtimeChange(RealtimeTopics.Documents);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
     }
 }

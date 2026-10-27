@@ -40,6 +40,8 @@ public static class WebSecurityRegistration
                 new FixedWindowRateLimiterOptions { PermitLimit = 12, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             o.AddPolicy("user", c => RateLimitPartition.GetFixedWindowLimiter(c.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ =>
                 new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            o.AddPolicy("streams", c => RateLimitPartition.GetConcurrencyLimiter(c.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ =>
+                new ConcurrencyLimiterOptions { PermitLimit = 6, QueueLimit = 0 }));
         });
     }
 }

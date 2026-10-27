@@ -13,6 +13,7 @@ The repository contains the application, infrastructure definitions, tests and d
 - [Use the workspace](#use-the-workspace)
 - [Model roles and cost controls](#model-roles-and-cost-controls)
 - [Architecture](#architecture)
+- [Realtime synchronization](#realtime-synchronization)
 - [Authentication and security](#authentication-and-security)
 - [Observability](#observability)
 - [Build and test](#build-and-test)
@@ -177,7 +178,7 @@ Each class, record, interface, enum and struct has its own named file. Features 
 | Tools | Docker network only | Authenticated typed MCP tools and identity-scoped knowledge access |
 | Worker | Docker network only | Seed import, extraction, indexing, heartbeat and durable storage cleanup |
 | PostgreSQL | Docker network only | Accounts, ACL metadata, passages, conversations, jobs, events, approvals and usage |
-| Redis | Docker network only | Best-effort event mirror and cache infrastructure |
+| Redis | Docker network only | Event mirror, change notifications and short-lived authorized projection cache |
 | Qdrant | Docker network only | Collections separated by embedding space |
 | MinIO | Object API private; console on loopback `19001` | Original documents, recordings and synthesized speech |
 
@@ -301,6 +302,7 @@ All `/api` routes require a session except CSRF bootstrap and login. Every mutat
 | `/api/search`, `/api/overview` | Authorized retrieval and workspace summary | Signed-in account; results filtered by permissions |
 | `/api/conversations`, `/api/conversations/{id}`, `/pin` | History, messages, rename, pin and delete | Conversation owner |
 | `/api/chat`, `/api/runs/{id}/events`, `/api/runs/{id}/stop` | Queue, stream and cancel an answer | Conversation/run owner |
+| `/api/realtime/documents`, `/api/realtime/conversations`, `/api/realtime/overview` | Authorized snapshot, patch and resume subscriptions | Signed-in account; account and session rechecked before every refresh |
 | `/api/speech/transcribe`, `/api/speech/synthesize`, `/api/voices`, `/api/voices/{id}/audio` | Dictation, synthesis and stored playback | Owner; administrators may read stored voices |
 | `/api/approvals`, `/api/models`, `/api/admin/*` | Review, model roles, users, usage, audit and health | Administrator |
 | `/health`, `/metrics` | Readiness and aggregate metrics | Loopback app/private monitoring network |
@@ -321,6 +323,37 @@ Clients send `Accept: application/json, text/event-stream`, `MCP-Protocol-Versio
 PostgreSQL holds users, document metadata, voice metadata, chunks, conversations, messages, runs, events, usage, approvals, settings and audit entries. MinIO stores document and voice bytes. EF Core creates the initial schema for this test project on first startup. The voice asset table has an additive startup upgrade; other schema changes still require an explicit migration plan. Do not point this setup at an existing unrelated database. Redis and Qdrant have dedicated named volumes.
 
 Deleting a document removes relational records and its original bytes. Old Qdrant points may remain until index maintenance, but are excluded by document authorization and relational existence checks. Conversation history remains as a record of what was previously answered.
+
+## Realtime synchronization
+
+The knowledge library, conversation sidebar and Overview subscribe to authorized projections over server-sent events. AI answers continue to use append-only text deltas. This requires no additional deployment service and no paid realtime provider.
+
+```mermaid
+flowchart LR
+    Mutation[Committed business mutation] --> Outbox[(PostgreSQL RealtimeOutbox)]
+    Outbox --> Dispatcher[Web-hosted outbox dispatcher]
+    Dispatcher --> Redis[Redis topic notification]
+    Redis --> Subscriber[Topic-scoped subscription]
+    Subscriber --> Authorization[Reload account and validate session]
+    Authorization --> Projection[Recompute authorized DTO]
+    Projection --> Fingerprint[Canonical SHA-256 fingerprint]
+    Fingerprint --> Choice[Suppress / snapshot / patch / resumed]
+    Choice --> Browser[Validated client state]
+```
+
+- **Unchanged views send no data frame.** Fingerprints cover the canonical authorized DTO, with stable object-key ordering and deterministic list ordering. Internal storage locations, indexing leases and worker heartbeat changes are absent from these projections. A private document change therefore cannot expose its contents to an unauthorized subscriber.
+- **Changed views use the smaller representation.** The server compares UTF-8 encoded snapshot and patch frames, including SSE framing. Patches use a bounded subset of JSON Patch: add, remove and replace. When a patch is larger or exceeds 256 operations, the server sends a full snapshot.
+- **Reconnects retain matching state.** Clients echo a held fingerprint in `Last-Event-ID`, or the `fingerprint` query parameter on a new connection. The server always reloads the account, authorizes and recomputes current data before returning `resumed`. A matching fingerprint avoids retransmitting the payload; it does not grant access or skip authorization. A matching cached base can also support a smaller patch after reconnect; otherwise the response is a fresh snapshot.
+- **Notifications are durable and topic-scoped.** Tracked business writes enqueue notifications in their transaction; atomic repository operations do the same explicitly. The web dispatcher coalesces committed notifications and publishes through Redis. Delivery is at least once, and subscribers suppress duplicate resulting views. Failed publication retains outbox entries for retry.
+- **Redis outages remain recoverable.** Streams recheck authorized state every five seconds while idle, so a missed notification cannot leave a permanently stale view. Chat event replay still reads PostgreSQL and is now woken by notifications instead of polling every 250 milliseconds.
+- **Revocation ends open streams.** Account disablement and password changes wake session-scoped subscribers. Each subsequent event batch or projection refresh checks the enabled account and session version. Missing notifications fall back to the bounded recheck. Connections also renew within fifteen minutes and never outlive their authentication ticket.
+- **Client recovery is bounded.** The browser checks schema and base fingerprints, applies patches atomically, rejects unsafe object paths, and requests a new snapshot on mismatch. Sign-out or revocation discards private held state, closes streams, clears document/message views, and stops recording and playback. Cached view data stays in memory rather than browser local storage.
+
+Projection caches use user/session/role/team/view-specific scope hashes, a five-minute lifetime, and a bounded local memory fallback. Redis caches and notifications are internal infrastructure. Views are capped at 2 MB; the existing REST endpoints remain available for larger lists. Six concurrent streams per account limit resource use.
+
+`/metrics` reports `atlas_realtime_evaluations_total`, suppressed updates, snapshots, patches, resumes, frame bytes and hypothetical snapshot-baseline bytes. These process-local counters measure projection SSE frames, including their framing; they exclude HTTP headers, compression, heartbeats and transport overhead. The baseline assumes a full snapshot for every projection evaluation, including fallback evaluations. It is a comparison counter, not a claim about previous production traffic or guaranteed savings.
+
+See [the realtime design](docs/realtime.md) for protocol examples and failure handling.
 
 ## Authentication and security
 
@@ -354,7 +387,10 @@ The script enables trace export automatically. When using Compose directly, set 
 ```powershell
 dotnet build AtlasHub.slnx
 dotnet test AtlasHub.slnx
+node --test tests/Hub.Browser.Tests/*.test.js
 ```
+
+Browser protocol tests use Node.js 24 or newer and its built-in test runner, with no npm dependencies. Node.js is not needed to run the Docker app.
 
 If using a project-local SDK, replace `dotnet` with `./.tools/dotnet/dotnet.exe`. Tests use isolated SQLite databases, local file stores and provider substitutes, so they do not spend external credits. They check layer dependencies, one type per file, aggregate rules, session revocation, authentication and anti-forgery behavior, document permissions in retrieval, administrator-only review, approval binding and replay, private voice playback, byte ranges, storage paths, persistent chat pins, competing answer claims, indexing rollback, idempotent completion, expired-run recovery, budget reservations, provider failure fallback, embedding-space isolation and chunking invariants.
 

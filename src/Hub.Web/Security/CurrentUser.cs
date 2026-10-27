@@ -8,4 +8,6 @@ public sealed class CurrentUser(IHttpContextAccessor accessor, IdentityService i
         ? id : throw new UseCaseException(ErrorKind.Unauthorized, "Your session has expired.");
 
     public Task<HubUser> Get(CancellationToken ct = default) => identity.GetUser(Id, ct);
+    public string SessionVersion => accessor.HttpContext?.User.FindFirstValue("version")
+        ?? throw new UseCaseException(ErrorKind.Unauthorized, "Your session has expired.");
 }
