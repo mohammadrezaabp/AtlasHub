@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File scripts/Test-PublishSafety.ps1
+elif command -v powershell.exe >/dev/null 2>&1; then
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Test-PublishSafety.ps1
+else
+  echo 'PowerShell is required for the publication safety check.' >&2
+  exit 1
+fi
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner
+fi

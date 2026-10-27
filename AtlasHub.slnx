@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Hub.Domain/Hub.Domain.csproj" />
+    <Project Path="src/Hub.Application/Hub.Application.csproj" />
+    <Project Path="src/Hub.Infrastructure/Hub.Infrastructure.csproj" />
+    <Project Path="src/Hub.Web/Hub.Web.csproj" />
+    <Project Path="src/Hub.Gateway/Hub.Gateway.csproj" />
+    <Project Path="src/Hub.Tools/Hub.Tools.csproj" />
+    <Project Path="src/Hub.Worker/Hub.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Hub.Tests/Hub.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,14 @@
+global using Hub.Application.Abstractions.Monitoring;
+global using Hub.Application.Abstractions.Persistence;
+global using Hub.Application.Abstractions.Storage;
+global using Hub.Application.Agents;
+global using Hub.Application.Approvals;
+global using Hub.Application.Common;
+global using Hub.Application.Conversations;
+global using Hub.Application.Documents;
+global using Hub.Application.Identity;
+global using Hub.Application.Knowledge;
+global using Hub.Application.Monitoring;
+global using Hub.Application.Search;
+global using Hub.Application.Speech;
+global using Hub.Domain.Identity;
