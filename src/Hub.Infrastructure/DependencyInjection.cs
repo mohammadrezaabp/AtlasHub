@@ -1,9 +1,11 @@
 using Hub.Application;
+using Hub.Application.Abstractions.Realtime;
 using Hub.Infrastructure.AI;
 using Hub.Infrastructure.Caching;
 using Hub.Infrastructure.Events;
 using Hub.Infrastructure.Monitoring;
 using Hub.Infrastructure.Persistence.Repositories;
+using Hub.Infrastructure.Realtime;
 using Hub.Infrastructure.Security;
 using Hub.Infrastructure.Speech;
 using Hub.Infrastructure.Storage;
@@ -52,6 +54,10 @@ public static class DependencyInjection
         b.Services.AddSingleton<ISpeechProvider, DeepgramSpeechProvider>();
         b.Services.AddSingleton<ISystemMonitor, SystemMonitor>();
         b.Services.AddSingleton<ISeedDocumentSource, SeedDocumentSource>();
+        b.Services.AddSingleton<LocalChangeHub>();
+        b.Services.AddSingleton<RedisChangeFeed>();
+        b.Services.AddSingleton<IChangeFeed>(services => services.GetRequiredService<RedisChangeFeed>());
+        b.Services.AddSingleton<IProjectionStateStore, ProjectionStateStore>();
         b.Logging.AddJsonConsole();
         b.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
         b.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
@@ -62,5 +68,7 @@ public static class DependencyInjection
                 if (!string.IsNullOrEmpty(b.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"])) t.AddOtlpExporter();
             });
     }
+
+    public static void AddRealtimeDelivery(this IHostApplicationBuilder builder) => builder.Services.AddHostedService<ChangeOutboxDispatcher>();
 
 }

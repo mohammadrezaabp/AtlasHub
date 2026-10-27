@@ -1,5 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Xunit;
 using static Hub.Tests.Support.ApiTestClient;
 
@@ -7,6 +11,19 @@ namespace Hub.Tests.Integration;
 
 public sealed class SecurityBoundaryTests
 {
+    [Fact]
+    public async Task Authentication_keys_honor_the_configured_isolated_storage_directory()
+    {
+        using var factory = new HubFactory();
+        using var client = factory.CreateClient();
+        await SignIn(client);
+        var options = factory.Services.GetRequiredService<IOptions<KeyManagementOptions>>().Value;
+        var repository = Assert.IsType<FileSystemXmlRepository>(options.XmlRepository);
+        Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), repository.Directory.FullName);
+        Assert.Contains("atlas-test-", repository.Directory.FullName);
+        Assert.NotEmpty(Directory.GetFiles(repository.Directory.FullName, "key-*.xml"));
+    }
+
     [Fact]
     public async Task Public_shell_sets_defensive_headers_without_exposing_runtime_configuration()
     {

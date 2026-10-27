@@ -27,6 +27,8 @@ public static class DependencyInjection
         services.AddSingleton<ModelCatalog>();
         services.AddSingleton<MetricsService>();
         services.AddSingleton<UsageAccountingService>();
+        services.AddSingleton<Hub.Application.Realtime.ProjectionService>();
+        services.AddSingleton<Hub.Application.Realtime.RealtimeMetrics>();
         return services;
     }
 }
