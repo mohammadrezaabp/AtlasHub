@@ -1,3 +1,5 @@
+import { ProjectionClient } from './realtime.js';
+
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -35,7 +37,8 @@ function setTheme(theme){document.documentElement.dataset.theme=theme;$('#theme-
 let savedTheme='dark';try{if(localStorage.getItem('atlas.theme')==='light')savedTheme='light';}catch{}setTheme(savedTheme);
 $('#theme-toggle').onclick=()=>setTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
 let csrf, user, view = 'home', documents = [], conversationId = null, runId = null, sourceList = [], imageDocumentId = null;
-let eventSource, answerText = '', answerEl, lastMessages = [], recorder, recordingStream, recordingTimeout, libraryTimer;
+let eventSource, answerText = '', answerEl, lastMessages = [], recorder, recordingStream, recordingTimeout, activeSpeech;
+let sessionEpoch=0;
 let lastRunError='', lastQuestion='', docFilter='', docState='all';
 let historyChats=[], historyQuery='', menuChat=null;
 let docFolderTeam=null, docFolderAccess=null;
@@ -45,21 +48,44 @@ const main = $('#main-content');
 const toast = message => { const el=$('#toast'); el.textContent=message; el.classList.remove('hidden'); clearTimeout(el.timer); el.timer=setTimeout(()=>el.classList.add('hidden'),6500); };
 async function token(){ csrf=(await (await fetch('/api/auth/csrf')).json()).token; }
 async function api(url, options={}) {
+ const requestOwner=user?.id;
+ const requestEpoch=sessionEpoch;
  const headers = new Headers(options.headers || {});
  if (options.body && !(options.body instanceof FormData)) { headers.set('Content-Type','application/json'); options.body=JSON.stringify(options.body); }
  if (options.method && options.method!=='GET') { if (!csrf) await token(); headers.set('X-CSRF-TOKEN',csrf); }
  const r=await fetch('/api'+url,{...options,headers});
+ if(requestOwner&&(requestOwner!==user?.id||requestEpoch!==sessionEpoch))throw Error('Your session changed.');
  if(r.status===401 && url!='/auth/login'){showLogin();throw Error('Please sign in to continue.');}
  if(!r.ok){ let data; try{data=await r.json();}catch{} throw Error(data?.error || (r.status===429?'Too many requests. Please wait a moment.':`Request failed (${r.status}).`)); }
- if(options.binary) return r.blob();
- const text=await r.text(); return text?JSON.parse(text):null;
+ const body=options.binary?await r.blob():await r.text();
+ if(requestOwner&&(requestOwner!==user?.id||requestEpoch!==sessionEpoch))throw Error('Your session changed.');
+ return options.binary?body:body?JSON.parse(body):null;
 }
 const date = s => new Date(s.endsWith('Z')?s:s+'Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
 const money = n => '$'+Number(n||0).toFixed(4);
 const badge = s => `<span class="badge ${['Failed','Rejected','unavailable'].includes(s)?'error':['Queued','Indexing','LexicalOnly','Pending','degraded'].includes(s)?'warn':''}"><span class="status-dot"></span>${esc(s)}</span>`;
 const pageActions = button => { $('#view-actions').innerHTML=button; return ''; };
 const empty = title => `<div class="empty">${icon('book')}<h3>${esc(title)}</h3></div>`;
-function showLogin(){historyChats=[];historyQuery='';documents=[];docFolderTeam=null;docFolderAccess=null;renderHistory();user=null;eventSource?.close();$('#account-menu').hidePopover();$('#chat-menu').hidePopover();$('#boot').classList.add('hidden');$('#app-view').classList.add('hidden');$('#login-view').classList.remove('hidden');}
+const liveViews=new Map();
+let activeViewProjection=null;
+async function verifyLiveSession(){const response=await fetch('/api/me');return ![401,403].includes(response.status);}
+function liveView(name,onData){
+ let client=liveViews.get(name);
+ if(!client){client=new ProjectionClient(name,{onData,onRevoked:showLogin,verifySession:verifyLiveSession,onError:message=>{
+  if(!user)return;toast(message);api('/'+name).then(data=>{if(user)onData(data);}).catch(()=>{});
+ }});liveViews.set(name,client);}else client.onData=onData;
+ return client;
+}
+function activateLiveView(name,onData){activeViewProjection?.pause();const client=liveView(name,onData);activeViewProjection=client;client.pause();client.start();}
+function showLogin(){
+ sessionEpoch++;csrf=null;clearTimeout(recordingTimeout);if(recorder?.state==='recording'){recorder.onstop=null;recorder.stop();}recordingStream?.getTracks().forEach(track=>track.stop());
+ if(activeSpeech){activeSpeech.pause();URL.revokeObjectURL(activeSpeech.src);activeSpeech.src='';activeSpeech=null;}
+ for(const client of liveViews.values())client.dispose();liveViews.clear();activeViewProjection=null;
+ historyChats=[];historyQuery='';documents=[];docFolderTeam=null;docFolderAccess=null;docFilter='';docState='all';lastMessages=[];sourceList=[];answerText='';lastQuestion='';lastRunError='';runId=null;conversationId=null;imageDocumentId=null;menuChat=null;
+ $('#chat-history-search').value='';$('#chat-history-search').classList.add('hidden');
+ renderHistory();user=null;eventSource?.close();eventSource=null;main.innerHTML='';if($('#modal').open)$('#modal').close();$('#modal-body').innerHTML='';
+ $('#account-menu').hidePopover();$('#chat-menu').hidePopover();$('#boot').classList.add('hidden');$('#app-view').classList.add('hidden');$('#login-view').classList.remove('hidden');
+}
 async function boot(){try{await token();user=await api('/me');await showApp();}catch{showLogin();}}
 async function showApp(){
  $('#boot').classList.add('hidden');$('#login-view').classList.add('hidden');$('#app-view').classList.remove('hidden');
@@ -67,7 +93,7 @@ async function showApp(){
  $('#user-avatar').textContent=user.name.split(' ').map(s=>s[0]).slice(0,2).join('').toUpperCase();
  $('#rail-avatar').textContent=$('#user-avatar').textContent;
  $$('.admin-only').forEach(x=>x.classList.toggle('hidden',user.role!=='Admin'));
- await token();const route=readRoute();conversationId=route.conversationId;await navigate(route.view,false);saveRoute(true);await recentChats();
+ await token();await recentChats();if(!user)return;const route=readRoute();conversationId=route.conversationId;await navigate(route.view,false);saveRoute(true);
 }
 $('#login-form').addEventListener('submit',async e=>{
  e.preventDefault();const button=$('button',e.target);button.disabled=true;$('#login-error').textContent='';
@@ -87,7 +113,7 @@ window.addEventListener('popstate',()=>{if(user){const route=readRoute();convers
 function saveRoute(replace=false){const path=view==='chat'?'#chat'+(conversationId?'/'+conversationId:''):view==='home'?'#overview':'#'+view;if(location.hash!==path)history[replace?'replaceState':'pushState'](null,'',path);}
 async function navigate(next,writeHistory=true){
  if(user&&user.role!=='Admin'&&['approvals','system','team'].includes(next)){toast('Administrator access required.');next='chat';}
- clearTimeout(libraryTimer);
+ activeViewProjection?.pause();activeViewProjection=null;
  $('#chat-menu').hidePopover();
  $('#account-menu').hidePopover();$('#view-actions').innerHTML='';
  if(view==='chat' && next!=='chat'){eventSource?.close();eventSource=null;}
@@ -96,7 +122,11 @@ async function navigate(next,writeHistory=true){
  try{await ({home:renderHome,chat:renderChat,documents:renderDocuments,search:renderSearch,approvals:renderApprovals,system:renderSystem,team:renderTeam,settings:renderSettings}[next])();}
  catch(e){main.innerHTML=`<div class="error-box">${esc(e.message)}</div>`;}
 }
-async function recentChats(){try{historyChats=await api('/conversations');renderHistory();}catch{}}
+async function recentChats(){
+ if(!user)return;
+ const client=liveView('conversations',data=>{if(!user)return;historyChats=data;renderHistory();});client.start();
+ if(!client.state){const loaded=await Promise.race([client.ready,new Promise(resolve=>setTimeout(()=>resolve(false),5000))]);if(!loaded&&user){try{historyChats=await api('/conversations');renderHistory();}catch{}}}
+}
 function renderHistory(){
  const chats=historyChats.filter(c=>c.title.toLowerCase().includes(historyQuery.toLowerCase()));const today=new Date();today.setHours(0,0,0,0);const week=new Date(today);week.setDate(week.getDate()-7);
  const groups=[['Pinned',c=>c.pinned],['Today',c=>new Date(c.createdAt.endsWith('Z')?c.createdAt:c.createdAt+'Z')>=today],['Previous 7 days',c=>{const d=new Date(c.createdAt.endsWith('Z')?c.createdAt:c.createdAt+'Z');return d<today&&d>=week;}],['Older',c=>new Date(c.createdAt.endsWith('Z')?c.createdAt:c.createdAt+'Z')<week]];
@@ -117,7 +147,10 @@ $('#rename-chat').onclick=()=>{const chat=menuChat;$('#chat-menu').hidePopover()
 $('#delete-chat').onclick=()=>{const chat=menuChat;$('#chat-menu').hidePopover();if(!chat)return;modal(`<h2>Delete this chat?</h2><p><strong>${esc(chat.title)}</strong></p><p>This permanently removes the conversation and its saved answers. This cannot be undone.</p><p class="form-error" id="delete-chat-error"></p><div class="dialog-actions"><button id="cancel-chat-delete" class="secondary">Cancel</button><button id="confirm-chat-delete" class="danger">Delete chat</button></div>`);$('#cancel-chat-delete').onclick=()=>$('#modal').close();$('#cancel-chat-delete').focus();$('#confirm-chat-delete').onclick=async e=>{e.target.disabled=true;try{await api('/conversations/'+chat.id,{method:'DELETE'});$('#modal').close();if(conversationId===chat.id){conversationId=null;await navigate('chat');}await recentChats();toast('Chat deleted.');}catch(err){$('#delete-chat-error').textContent=err.message;e.target.disabled=false;}};};
 const prompts=[{icon:'layers',title:'Understand the bigger picture',body:'How is the platform architecture organized?',query:'Explain the platform architecture and the responsibilities of each major service.'},{icon:'shield',title:'Find the details that matter',body:'How are authentication and access managed?',query:'How does the system handle authentication, access control and sensitive actions?'},{icon:'spark',title:'Turn knowledge into clarity',body:'Walk me through retrieval and model routing.',query:'Explain the complete RAG pipeline, embedding, reranking and model failover.'}];
 async function renderHome(){
- const d=await api('/overview');if(view!=='home')return;
+ activateLiveView('overview',renderOverviewData);
+}
+function renderOverviewData(d){
+ if(!user||view!=='home')return;
  main.innerHTML=`<section>${pageActions(`<button class="primary" id="home-upload">${icon('upload')} Add knowledge</button>`)}
  <div class="stats-grid">${[{label:'Knowledge documents',number:d.documents,note:d.ready+' ready',icon:'files'},{label:'Searchable passages',number:d.chunks.toLocaleString(),note:'',icon:'layers'},{label:'Conversations',number:d.conversations,note:'',icon:'spark'},{label:'AI usage estimate',number:money(d.costUsd),note:d.tokens.toLocaleString()+' tokens',icon:'activity'}].map(s=>`<div class="stat-card"><div class="stat-top"><span>${s.label}</span><span class="stat-icon">${icon(s.icon)}</span></div><div class="stat-number">${s.number}</div>${s.note?`<div class="stat-note">${s.note}</div>`:''}</div>`).join('')}</div>
  <div class="section-header"><div><h3>Recently added knowledge</h3></div><button data-view="documents">View library ↗</button></div><div class="table-wrap">${d.recent.length?docTable(d.recent,false):empty('No documents')}</div></section>`;
@@ -139,12 +172,16 @@ function showUpload(){
  $('#upload-form').onsubmit=async e=>{e.preventDefault();const b=$('button[type=submit]',e.target);b.disabled=true;b.textContent='Uploading…';try{await api('/documents',{method:'POST',body:new FormData(e.target)});$('#modal').close();toast('Document added. Atlas is preparing it for search.');await navigate('documents');}catch(err){$('#upload-error').textContent=err.message;b.disabled=false;b.textContent='Add knowledge';}};
 }
 async function renderDocuments(){
- documents=await api('/documents');if(view!=='documents')return;
+ activateLiveView('documents',renderDocumentData);
+}
+function renderDocumentData(data){
+ if(!user||view!=='documents')return;documents=data;
+ const focused=document.activeElement?.id==='filter-docs';const selection=focused?[$('#filter-docs').selectionStart,$('#filter-docs').selectionEnd]:null;const scroll=main.scrollTop;
  main.innerHTML=`<section>${pageActions(`<button id="add-document" class="primary">${icon('upload')} Add knowledge</button>`)}<div class="toolbar"><input id="filter-docs" placeholder="Find a document…" aria-label="Filter documents"/><span class="badge">${documents.length} documents · ${documents.reduce((n,d)=>n+d.chunkCount,0).toLocaleString()} passages</span><button id="refresh-docs" class="secondary">Refresh</button></div><nav id="document-breadcrumbs" class="document-breadcrumbs" aria-label="Document folders"></nav><div id="doc-list"></div></section>`;
  $('#add-document').onclick=showUpload;$('#refresh-docs').onclick=renderDocuments;
  $('#filter-docs').value=docFilter;$('#filter-docs').oninput=e=>{docFilter=e.target.value;filterDocs();};
  $('#refresh-docs').insertAdjacentHTML('beforebegin','<select id="filter-state" aria-label="Filter by indexing status"><option value="all">All statuses</option><option value="Ready">Ready</option><option value="Indexing">Processing</option><option value="Failed">Needs attention</option></select>');$('#filter-state').value=docState;$('#filter-state').onchange=e=>{docState=e.target.value;filterDocs();};filterDocs();
- if(documents.some(d=>['Queued','Indexing'].includes(d.status)))libraryTimer=setTimeout(()=>{if(view==='documents')renderDocuments();},8000);
+ if(focused){$('#filter-docs').focus();$('#filter-docs').setSelectionRange(...selection);}main.scrollTop=scroll;
 }
 function filterDocs(){
  const filtered=documents.filter(d=>d.title.toLowerCase().includes(docFilter.toLowerCase())&&(docState==='all'||(docState==='Indexing'?['Indexing','Queued'].includes(d.status):docState==='Failed'?['Failed','LexicalOnly'].includes(d.status):d.status===docState)));
@@ -190,7 +227,7 @@ async function renderChat(){
   lastMessages=await api('/conversations/'+conversationId);if(view!=='chat')return;
   $('#messages').innerHTML=lastMessages.map(m=>messageHTML(m.role,m.text,m.id,JSON.parse(m.sources||'[]'))).join('');
   const last=lastMessages.filter(m=>m.role==='assistant').at(-1);if(last){sourceList=JSON.parse(last.sources||'[]');renderSources();refreshMarkdown();}
-  const chats=await api('/conversations');if(view!=='chat')return;const chat=chats.find(c=>c.id===conversationId);
+  if(view!=='chat')return;const chat=historyChats.find(c=>c.id===conversationId);
   if(chat?.activeRunId){startAnswer();listen(chat.activeRunId);}
  }else $('#messages').innerHTML=`<div class="chat-empty"><h2>What can I help with?</h2><div class="chat-prompts">${prompts.map((p,i)=>`<button data-prompt="${i}">${p.body}</button>`).join('')}</div></div>`;
  $('#chat-form').onsubmit=sendChat;$('#chat-input').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(!runId)$('#chat-form').requestSubmit();}};
@@ -216,7 +253,10 @@ async function sendChat(e){
 }
 function listen(id){
  runId=id;eventSource?.close();eventSource=new EventSource(`/api/runs/${id}/events`);
- eventSource.onmessage=e=>{const data=JSON.parse(e.data);
+ const source=eventSource;let lastEventId=0;
+ eventSource.onmessage=e=>{if(!user||eventSource!==source)return;const data=JSON.parse(e.data);
+  if(data.type==='subscription_closed'){source.close();if(data.reason==='session_revoked'){showLogin();return;}runId=null;eventSource=null;$('#run-stage').textContent='This answer is no longer available.';$('#send-chat').classList.remove('hidden');$('#stop-chat').classList.add('hidden');return;}
+  if(e.lastEventId){const cursor=Number(e.lastEventId);if(!Number.isSafeInteger(cursor)||cursor<=lastEventId)return;lastEventId=cursor;}
   if(data.type==='stage')$('#run-stage').textContent=data.message;
   if(data.type==='sources'){sourceList=data.sources;renderSources();}
   if(data.type==='text_delta'){const follow=isAtBottom();answerText+=data.delta;answerEl.innerHTML=markdown(answerText);if(follow)scrollMessages();else $('#scroll-latest').classList.remove('hidden');}
@@ -231,7 +271,7 @@ function listen(id){
    const el=$('[data-message="live"]');if(el){const key='run-'+id;el.dataset.message=key;answerEl.innerHTML=markdown(answerText,sourceList,key);$$('[data-speak],[data-copy]',el).forEach(b=>{if(b.dataset.speak)b.dataset.speak=key;if(b.dataset.copy)b.dataset.copy=key;});lastMessages.push({id:key,text:answerText,role:'assistant',sources:JSON.stringify(sourceList)});}bindMessageActions();recentChats();
   }
  };
- eventSource.onerror=()=>{if(eventSource&&view==='chat')$('#run-stage').textContent='Reconnecting to your answer…';};
+ eventSource.onerror=async()=>{if(eventSource!==source||!user)return;if(view==='chat')$('#run-stage').textContent='Reconnecting to your answer…';try{const valid=await verifyLiveSession();if(eventSource!==source||!user)return;if(!valid)showLogin();}catch{}};
 }
 function isAtBottom(){const el=$('#messages');return !el||el.scrollHeight-el.scrollTop-el.clientHeight<85;}
 function scrollMessages(){const el=$('#messages');if(el)el.scrollTop=el.scrollHeight;$('#scroll-latest')?.classList.add('hidden');}
@@ -240,7 +280,7 @@ function showSource(i,sources=sourceList){const s=sources[i];if(!s)return;modal(
 document.addEventListener('click',e=>{const b=e.target.closest('[data-citation]');if(b){const message=lastMessages.find(m=>String(m.id)===b.dataset.citationMessage);showSource(Number(b.dataset.citation),message?JSON.parse(message.sources||'[]'):sourceList);}});
 function bindMessageActions(){
  $$('[data-copy]').forEach(b=>b.onclick=async()=>{const m=lastMessages.find(m=>String(m.id)===b.dataset.copy);if(m){try{await navigator.clipboard.writeText(m.text);toast('Answer copied.');}catch{toast('Clipboard access is unavailable. Select the answer to copy it.');}}});
- $$('[data-speak]').forEach(b=>b.onclick=async()=>{const m=lastMessages.find(m=>String(m.id)===b.dataset.speak);if(!m)return;b.disabled=true;try{const text=m.text.replace(/[#*`]/g,'').replace(/\[\d+(?:\s*[,;]\s*\d+)*\]/g,'').slice(0,1800);const blob=await api('/speech/synthesize',{method:'POST',body:{text,conversationId},binary:true});const url=URL.createObjectURL(blob);const audio=new Audio(url);audio.onended=()=>URL.revokeObjectURL(url);await audio.play();}catch(e){toast(e.message);}finally{b.disabled=false;}});
+ $$('[data-speak]').forEach(b=>b.onclick=async()=>{const m=lastMessages.find(m=>String(m.id)===b.dataset.speak);if(!m)return;b.disabled=true;try{const text=m.text.replace(/[#*`]/g,'').replace(/\[\d+(?:\s*[,;]\s*\d+)*\]/g,'').slice(0,1800);const blob=await api('/speech/synthesize',{method:'POST',body:{text,conversationId},binary:true});const url=URL.createObjectURL(blob);const audio=new Audio(url);activeSpeech?.pause();activeSpeech=audio;audio.onended=()=>URL.revokeObjectURL(url);await audio.play();}catch(e){toast(e.message);}finally{b.disabled=false;}});
 }
 $('#image-input').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{const data=new FormData();data.append('file',file);data.append('visibility','Private');const doc=await api('/documents',{method:'POST',body:data});imageDocumentId=doc.id;$('#attachment').classList.remove('hidden');$('#attachment').innerHTML='<span>Image: '+esc(file.name)+'</span><button type="button" class="icon-button" id="remove-attachment" aria-label="Remove attached image">×</button>';$('#remove-attachment').onclick=()=>{imageDocumentId=null;$('#attachment').classList.add('hidden');};toast('Image ready for your next question.');}catch(err){toast(err.message);}e.target.value='';};
 async function record(){

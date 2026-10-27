@@ -51,6 +51,14 @@ public sealed class IdentityService(IHubSessionFactory sessions, IPasswordServic
         return user != null && user.SessionVersion.ToString() == version;
     }
 
+    public async Task<HubUser> GetSessionUser(Guid id, string version, CancellationToken ct)
+    {
+        if (!int.TryParse(version, out var sessionVersion)) throw new UseCaseException(ErrorKind.Unauthorized, "Your session has expired.");
+        await using var db = await sessions.CreateAsync(ct);
+        return await db.FirstOrDefaultAsync(db.Users.Where(u => u.Id == id && u.Enabled && u.SessionVersion == sessionVersion), ct)
+            ?? throw new UseCaseException(ErrorKind.Unauthorized, "Your session has expired.");
+    }
+
     public async Task ChangePassword(Guid id, string currentPassword, string newPassword, CancellationToken ct)
     {
         await using var db = await sessions.CreateAsync(ct);

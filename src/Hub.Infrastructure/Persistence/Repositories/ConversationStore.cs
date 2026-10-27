@@ -1,4 +1,5 @@
 using System.Data;
+using Hub.Application.Realtime;
 using Microsoft.EntityFrameworkCore;
 
 namespace Hub.Infrastructure.Persistence.Repositories;
@@ -7,10 +8,12 @@ public sealed class ConversationStore(IDbContextFactory<HubDb> factory) : IConve
 {
     public async Task<bool> Rename(Guid id, Guid owner, string title, CancellationToken ct)
     {
-        var candidate = Conversation.Create(owner, title);
         await using var db = await factory.CreateDbContextAsync(ct);
-        return await db.Conversations.Where(c => c.Id == id && c.UserId == owner)
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.Title, candidate.Title), ct) == 1;
+        var conversation = await db.Conversations.FirstOrDefaultAsync(c => c.Id == id && c.UserId == owner, ct);
+        if (conversation == null) return false;
+        conversation.Rename(title);
+        await db.SaveChangesAsync(ct);
+        return true;
     }
 
     public async Task<bool> SetPinned(Guid id, Guid owner, bool pinned, CancellationToken ct)
@@ -22,6 +25,8 @@ public sealed class ConversationStore(IDbContextFactory<HubDb> factory) : IConve
         if (pinned)
             await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Settings\" (\"Key\", \"Value\") VALUES ({key}, {id.ToString()}) ON CONFLICT (\"Key\") DO NOTHING", ct);
         else await db.Settings.Where(s => s.Key == key).ExecuteDeleteAsync(ct);
+        db.QueueRealtimeChange(RealtimeTopics.Conversations(owner));
+        await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
     }
@@ -44,6 +49,7 @@ public sealed class ConversationStore(IDbContextFactory<HubDb> factory) : IConve
         var pin = $"chat.pin:{owner}:{id}";
         await db.Settings.Where(s => s.Key == pin).ExecuteDeleteAsync(ct);
         db.Audit.Add(new AuditEntry { Actor = owner.ToString(), Action = "ConversationDeleted", Detail = id.ToString() });
+        db.QueueRealtimeChange(RealtimeTopics.Conversations(owner));
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
@@ -62,6 +68,7 @@ public sealed class ConversationStore(IDbContextFactory<HubDb> factory) : IConve
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.ActiveRunId, run.Id), ct) == 0) return false;
         db.Runs.Add(run);
         db.Messages.Add(new Message { ConversationId = conversation.Id, Role = "user", Text = run.Prompt, RunId = run.Id });
+        db.QueueRealtimeChange(RealtimeTopics.Conversations(run.UserId));
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         return true;
