@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hub.Application.Realtime;
 using Hub.Infrastructure.Events;
 using Microsoft.EntityFrameworkCore;
 
@@ -31,6 +32,7 @@ public sealed class RunStore(IDbContextFactory<HubDb> factory, IEventMirror mirr
                 new() { RunId = run.Id, Data = JsonSerializer.Serialize(new { type = "error", message = "The answer was interrupted by a service restart. Send the question again." }, JsonDefaults.Web) },
                 new() { RunId = run.Id, Data = JsonSerializer.Serialize(new { type = "run_finished", status = RunStatus.Interrupted }, JsonDefaults.Web) }];
             db.Events.AddRange(terminalEvents);
+            db.QueueRealtimeChange(RealtimeTopics.Conversations(run.UserId));
             await db.SaveChangesAsync(ct);
             await db.Conversations.Where(c => c.Id == run.ConversationId && c.ActiveRunId == run.Id)
                 .ExecuteUpdateAsync(s => s.SetProperty(c => c.ActiveRunId, (Guid?)null), ct);
@@ -44,7 +46,7 @@ public sealed class RunStore(IDbContextFactory<HubDb> factory, IEventMirror mirr
     public async Task<bool> Heartbeat(Guid id, string owner, CancellationToken ct)
     {
         await using var db = await factory.CreateDbContextAsync(ct);
-        if (await db.Runs.AnyAsync(r => r.Id == id && (r.CancelRequested || r.Owner != owner), ct)) return false;
+        if (await db.Runs.AnyAsync(r => r.Id == id && (r.CancelRequested || r.Owner != owner || !db.Users.Any(user => user.Id == r.UserId && user.Enabled)), ct)) return false;
         return await db.Runs.Where(r => r.Id == id && r.Owner == owner && r.Status == RunStatus.Running)
             .ExecuteUpdateAsync(s => s.SetProperty(r => r.LeaseUntil, DateTime.UtcNow.AddMinutes(1)), ct) == 1;
     }
@@ -59,6 +61,7 @@ public sealed class RunStore(IDbContextFactory<HubDb> factory, IEventMirror mirr
         if (answer.Length > 0) db.Messages.Add(new Message { ConversationId = run.ConversationId, Role = "assistant", Text = answer, Sources = JsonSerializer.Serialize(sources, JsonDefaults.Web), RunId = run.Id });
         var finished = new RunEvent { RunId = run.Id, Data = JsonSerializer.Serialize(new { type = "run_finished", status, sources }, JsonDefaults.Web) };
         db.Events.Add(finished);
+        db.QueueRealtimeChange(RealtimeTopics.Conversations(run.UserId));
         await db.SaveChangesAsync(ct);
         await db.Conversations.Where(c => c.Id == run.ConversationId && c.ActiveRunId == run.Id)
             .ExecuteUpdateAsync(s => s.SetProperty(c => c.ActiveRunId, (Guid?)null), ct);

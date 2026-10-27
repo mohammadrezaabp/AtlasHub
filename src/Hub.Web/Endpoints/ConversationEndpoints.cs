@@ -31,6 +31,6 @@ public static class ConversationEndpoints
             await conversations.Stop(user.Id, id, ct);
             return Results.Ok();
         });
-        api.MapGet("/runs/{id:guid}/events", EventStreamEndpoint.Stream);
+        api.MapGet("/runs/{id:guid}/events", EventStreamEndpoint.Stream).RequireRateLimiting("streams");
     }
 }

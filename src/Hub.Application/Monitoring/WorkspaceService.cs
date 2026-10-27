@@ -7,7 +7,7 @@ public sealed class WorkspaceService(IHubSessionFactory sessions)
         await using var db = await sessions.CreateAsync(ct);
         var documents = db.Documents.VisibleTo(user);
         var usage = await db.ListAsync(db.Usages.Where(u => u.Actor == user.Id.ToString()), ct);
-        var recent = await db.ListAsync(documents.OrderByDescending(d => d.CreatedAt).Select(d => new DocumentSummary(
+        var recent = await db.ListAsync(documents.OrderByDescending(d => d.CreatedAt).ThenBy(d => d.Id).Select(d => new DocumentSummary(
             d.Id, d.Title, d.FileName, d.Status, d.Error, d.Visibility, d.Department, d.ChunkCount, d.CreatedAt, user.Role == UserRoles.Administrator || d.OwnerId == user.Id)).Take(5), ct);
         return new WorkspaceOverview(await db.CountAsync(documents, ct), await db.CountAsync(documents.Where(d => d.Status == DocumentStatus.Ready || d.Status == DocumentStatus.LexicalOnly), ct),
             await db.CountAsync(db.Chunks.VisibleTo(user), ct), await db.CountAsync(db.Conversations.Where(c => c.UserId == user.Id), ct),

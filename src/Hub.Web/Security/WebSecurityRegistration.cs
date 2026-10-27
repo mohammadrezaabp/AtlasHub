@@ -2,6 +2,8 @@ using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.DataProtection.Repositories;
 
 namespace Hub.Web.Security;
 
@@ -13,9 +15,13 @@ public static class WebSecurityRegistration
         builder.Services.AddScoped<CurrentUser>();
         builder.Services.AddScoped<SessionCookieEvents>();
         builder.Services.AddAntiforgery(o => { o.HeaderName = "X-CSRF-TOKEN"; o.Cookie.SameSite = SameSiteMode.Strict; });
-        var keyPath = builder.Configuration["Security:KeyPath"] ?? (OperatingSystem.IsWindows() ? "data/keys" : "/data/keys");
-        Directory.CreateDirectory(keyPath);
-        builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(keyPath)).SetApplicationName("AtlasHub");
+        builder.Services.AddDataProtection().SetApplicationName("AtlasHub");
+        builder.Services.AddOptions<KeyManagementOptions>().Configure<IConfiguration, IHostEnvironment, ILoggerFactory>((options, config, environment, logs) =>
+        {
+            var keyPath = config["Security:KeyPath"] ?? Path.Combine(environment.ContentRootPath, "data", "keys");
+            Directory.CreateDirectory(keyPath);
+            options.XmlRepository = new FileSystemXmlRepository(new DirectoryInfo(keyPath), logs);
+        });
         builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(o =>
         {
             o.Cookie.Name = "atlas.session";
@@ -34,6 +40,8 @@ public static class WebSecurityRegistration
                 new FixedWindowRateLimiterOptions { PermitLimit = 12, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
             o.AddPolicy("user", c => RateLimitPartition.GetFixedWindowLimiter(c.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ =>
                 new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            o.AddPolicy("streams", c => RateLimitPartition.GetConcurrencyLimiter(c.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ =>
+                new ConcurrencyLimiterOptions { PermitLimit = 6, QueueLimit = 0 }));
         });
     }
 }
