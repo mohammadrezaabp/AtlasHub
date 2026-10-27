@@ -1,0 +1,8 @@
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+ARG PROJECT=Hub.Web
+ENV HUB_ASSEMBLY=${PROJECT}.dll ASPNETCORE_HTTP_PORTS=8080
+WORKDIR /app
+COPY artifacts/publish/${PROJECT}/ .
+RUN mkdir -p /data/uploads /data/keys && chown -R app:app /data
+USER app
+ENTRYPOINT ["/bin/sh", "-c", "exec dotnet \"$HUB_ASSEMBLY\""]

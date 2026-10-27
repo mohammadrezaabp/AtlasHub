@@ -1,0 +1,137 @@
+name: atlas-hub
+x-common: &common
+  Database__Provider: PostgreSQL
+  ConnectionStrings__Hub: Host=postgres;Database=atlas;Username=atlas;Password=${POSTGRES_PASSWORD}
+  Redis__Connection: redis:6379,abortConnect=false
+  Qdrant__Url: http://qdrant:6333
+  Gateway__Url: http://gateway:8080
+  Tools__Url: http://tools:8080
+  Security__InternalToken: ${INTERNAL_TOKEN}
+  Models__Chat: ${CHAT_MODEL:-google/gemini-2.5-flash-lite}
+  Models__Fast: ${FAST_MODEL:-openai/gpt-4.1-nano}
+  Models__Rerank: ${RERANK_MODEL:-google/gemini-2.5-flash-lite}
+  Models__Vision: ${VISION_MODEL:-google/gemini-2.5-flash-lite}
+  Models__Embedding: ${EMBEDDING_MODEL:-openai/text-embedding-3-small}
+  Models__Fallback: ${FALLBACK_MODEL:-openai/gpt-4.1-nano}
+  Storage__Path: /data/uploads
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+x-storage: &storage
+  Storage__Provider: Minio
+  Storage__Endpoint: http://minio:9000
+  Storage__Bucket: atlas-hub
+  Storage__AccessKey: ${MINIO_ROOT_USER:-atlas-local}
+  Storage__SecretKey: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+services:
+  minio:
+    image: ${MINIO_IMAGE:-quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z}
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-atlas-local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    volumes: [minio-data:/data]
+    ports: ["127.0.0.1:${MINIO_CONSOLE_PORT:-19001}:9001"]
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+  postgres:
+    image: docker.arvancloud.ir/postgres:16-alpine
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_DB: atlas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U atlas -d atlas']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes --maxmemory 192mb --maxmemory-policy noeviction
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    volumes: [qdrant-data:/qdrant/storage]
+    restart: unless-stopped
+  gateway:
+    build: {context: ., args: {PROJECT: Hub.Gateway}}
+    environment:
+      <<: *common
+      OpenRouter__ApiKey: ${OPENROUTER_API_KEY}
+      Budget__DailyUsd: ${DAILY_BUDGET_USD:-1.00}
+      Budget__MaxRequestUsd: ${MAX_REQUEST_USD:-0.05}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: unless-stopped
+  tools:
+    build: {context: ., args: {PROJECT: Hub.Tools}}
+    environment: *common
+    depends_on:
+      postgres: {condition: service_healthy}
+      gateway: {condition: service_started}
+    restart: unless-stopped
+  web:
+    build: {context: ., args: {PROJECT: Hub.Web}}
+    ports: ["127.0.0.1:${HUB_PORT:-5080}:8080"]
+    environment:
+      <<: [*common, *storage]
+      Bootstrap__Email: ${ADMIN_EMAIL}
+      Bootstrap__Password: ${ADMIN_PASSWORD}
+      Deepgram__ApiKey: ${DEEPGRAM_API_KEY}
+      Features__Vision: "true"
+      Features__Speech: "true"
+      Features__Rewrite: "true"
+      Features__Rerank: "true"
+    volumes: [uploads:/data/uploads, data-keys:/data/keys]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      tools: {condition: service_started}
+      minio: {condition: service_healthy}
+    restart: unless-stopped
+  worker:
+    build: {context: ., args: {PROJECT: Hub.Worker}}
+    environment:
+      <<: [*common, *storage]
+    volumes: [uploads:/data/uploads, './knowledge:/seed:ro']
+    depends_on:
+      postgres: {condition: service_healthy}
+      gateway: {condition: service_started}
+      minio: {condition: service_healthy}
+    restart: unless-stopped
+  otel:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes: ["./infra/otel.yaml:/etc/otelcol/config.yaml:ro"]
+    profiles: [observability]
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    volumes: ["./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro", prometheus-data:/prometheus]
+    ports: ["127.0.0.1:9090:9090"]
+    profiles: [observability]
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment: {GF_SECURITY_ADMIN_PASSWORD: "${ADMIN_PASSWORD}", GF_USERS_ALLOW_SIGN_UP: "false"}
+    volumes: [grafana-data:/var/lib/grafana, './infra/grafana:/etc/grafana/provisioning:ro']
+    ports: ["127.0.0.1:3000:3000"]
+    profiles: [observability]
+volumes:
+  minio-data:
+  postgres-data:
+  redis-data:
+  qdrant-data:
+  uploads:
+  data-keys:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,12 @@
+**
+!src
+!src/**
+!Directory.Build.props
+!NuGet.Config
+!Dockerfile
+!Dockerfile.prebuilt
+!artifacts
+!artifacts/publish
+!artifacts/publish/**
+src/**/bin
+src/**/obj

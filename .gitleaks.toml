@@ -1,0 +1,11 @@
+title = "AtlasHub secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "atlas-deepgram-key"
+description = "Deepgram API key assigned to a credential setting"
+regex = '''(?i)(?:deepgram[_:]{0,2}(?:api[_:]?)?key|Deepgram__ApiKey)\s*[=:]\s*["']?([a-f0-9]{40})'''
+secretGroup = 1
+keywords = ["deepgram"]

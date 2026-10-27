@@ -1,0 +1,13 @@
+services:
+  web:
+    build:
+      dockerfile: Dockerfile.prebuilt
+  gateway:
+    build:
+      dockerfile: Dockerfile.prebuilt
+  tools:
+    build:
+      dockerfile: Dockerfile.prebuilt
+  worker:
+    build:
+      dockerfile: Dockerfile.prebuilt

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --redact --no-banner
+else
+  echo 'Install Gitleaks before pushing. It scans every commit for secrets.' >&2
+  exit 1
+fi
