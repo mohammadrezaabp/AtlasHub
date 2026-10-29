@@ -89,6 +89,7 @@ services:
       Bootstrap__Email: ${ADMIN_EMAIL}
       Bootstrap__Password: ${ADMIN_PASSWORD}
       Security__KeyPath: /data/keys
+      Security__MetricsToken: ${METRICS_TOKEN:-}
       Deepgram__ApiKey: ${DEEPGRAM_API_KEY}
       Features__Vision: "true"
       Features__Speech: "true"
@@ -119,6 +120,7 @@ services:
   prometheus:
     image: prom/prometheus:v3.2.1
     volumes: ["./infra/prometheus.yaml:/etc/prometheus/prometheus.yml:ro", prometheus-data:/prometheus]
+    secrets: [metrics_token]
     ports: ["127.0.0.1:9090:9090"]
     profiles: [observability]
   grafana:
@@ -127,6 +129,9 @@ services:
     volumes: [grafana-data:/var/lib/grafana, './infra/grafana:/etc/grafana/provisioning:ro']
     ports: ["127.0.0.1:3000:3000"]
     profiles: [observability]
+secrets:
+  metrics_token:
+    environment: METRICS_TOKEN
 volumes:
   minio-data:
   postgres-data:

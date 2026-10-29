@@ -15,6 +15,7 @@ $env:Seed__Path="$PWD/knowledge"
 $env:Gateway__Url='http://localhost:5081'
 $env:Tools__Url='http://localhost:5082'
 $env:Security__InternalToken=$taskConfig.INTERNAL_TOKEN
+$env:Security__MetricsToken=$taskConfig.METRICS_TOKEN
 $env:Bootstrap__Email=$taskConfig.ADMIN_EMAIL
 $env:Bootstrap__Password=$taskConfig.ADMIN_PASSWORD
 $env:OpenRouter__ApiKey=$taskConfig.OPENROUTER_API_KEY

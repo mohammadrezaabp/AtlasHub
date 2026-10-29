@@ -9,7 +9,9 @@ public sealed class StubModelClient : IModelClient
     public int EmbeddingCalls { get; private set; }
     public string Model(string role) => "test/" + role.ToLowerInvariant();
     public Task<string> Complete(string role, object[] messages, string actor, int maxTokens = 700, CancellationToken ct = default) => Task.FromResult("Visible image evidence");
-    public Task<JsonObject> ToolCompletion(object[] messages, object[] tools, string actor, CancellationToken ct) => Task.FromResult(new JsonObject { ["role"] = "assistant", ["content"] = "Ready" });
+    public Queue<JsonObject> ToolResponses { get; } = new();
+    public Task<JsonObject> ToolCompletion(object[] messages, object[] tools, string actor, CancellationToken ct) =>
+        Task.FromResult(ToolResponses.TryDequeue(out var response) ? response : new JsonObject { ["role"] = "assistant", ["content"] = "Ready" });
     public async IAsyncEnumerable<string> Stream(object[] messages, string actor, [EnumeratorCancellation] CancellationToken ct = default)
     {
         await Task.Yield();

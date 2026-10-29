@@ -32,7 +32,7 @@ Prerequisites: Docker Desktop using Linux containers and approximately 4 GB of a
    ```
 
 2. Copy `.env.example` to `.env` if a local configuration does not already exist.
-3. Set `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, strong `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD` values, a random `INTERNAL_TOKEN` of at least 32 characters, and an `ADMIN_PASSWORD` of at least 12 characters. Replace every credential placeholder. Never commit `.env`.
+3. Set `OPENROUTER_API_KEY`, `DEEPGRAM_API_KEY`, strong `POSTGRES_PASSWORD` and `MINIO_ROOT_PASSWORD` values, random `INTERNAL_TOKEN` and `METRICS_TOKEN` values of at least 32 characters each, and an `ADMIN_PASSWORD` of at least 12 characters. Replace every credential placeholder. Never commit `.env`.
 4. Put documents you want imported automatically into `knowledge/`, or upload them after signing in. Supported formats: `.md`, `.txt`, `.csv`, `.pdf`, `.png`, `.jpg`, `.jpeg`, and `.webp`. Files are copied into persistent storage and deduplicated by content hash. The Git repository intentionally contains no seed documents.
 5. Start the workspace:
 
@@ -56,6 +56,7 @@ Stop the stack with `./scripts/Stop-Hub.ps1`. Persistent volumes retain document
 | `POSTGRES_PASSWORD` | Required | Dedicated application database credential |
 | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | User defaults to `atlas-local`; password required | Private object store credentials |
 | `INTERNAL_TOKEN` | Required; at least 32 random characters | Server-to-server gateway and MCP authentication |
+| `METRICS_TOKEN` | Required for `/metrics`; at least 32 random characters, different from `INTERNAL_TOKEN` | Bearer token Prometheus sends when scraping |
 | `OPENROUTER_API_KEY` | Required for model features | Chat, rewrite, reranking, vision and embeddings |
 | `DEEPGRAM_API_KEY` | Required for speech features | Speech transcription and synthesis |
 | `CHAT_MODEL`, `FAST_MODEL`, `RERANK_MODEL`, `VISION_MODEL`, `EMBEDDING_MODEL`, `FALLBACK_MODEL` | Defaults listed below | Explicit per-role model selection |
@@ -297,7 +298,7 @@ All `/api` routes require a session except CSRF bootstrap and login. Every mutat
 | Routes | Purpose | Access |
 |---|---|---|
 | `/api/auth/csrf`, `/api/auth/login` | CSRF bootstrap and sign-in | Anonymous; login throttled |
-| `/api/me`, `/api/auth/logout`, `/api/auth/password` | Profile and session lifecycle | Signed-in account |
+| `/api/me`, `/api/auth/logout`, `/api/auth/password` | Profile and session lifecycle; logout and password changes end every session of the account | Signed-in account |
 | `/api/documents`, `/api/documents/{id}`, `/download`, `/reindex`, `/delete-request` | Upload, inspect, download and propose lifecycle changes | Document ACL; management requires owner/admin |
 | `/api/search`, `/api/overview` | Authorized retrieval and workspace summary | Signed-in account; results filtered by permissions |
 | `/api/conversations`, `/api/conversations/{id}`, `/pin` | History, messages, rename, pin and delete | Conversation owner |
@@ -305,7 +306,8 @@ All `/api` routes require a session except CSRF bootstrap and login. Every mutat
 | `/api/realtime/documents`, `/api/realtime/conversations`, `/api/realtime/overview` | Authorized snapshot, patch and resume subscriptions | Signed-in account; account and session rechecked before every refresh |
 | `/api/speech/transcribe`, `/api/speech/synthesize`, `/api/voices`, `/api/voices/{id}/audio` | Dictation, synthesis and stored playback | Owner; administrators may read stored voices |
 | `/api/approvals`, `/api/models`, `/api/admin/*` | Review, model roles, users, usage, audit and health | Administrator |
-| `/health`, `/metrics` | Readiness and aggregate metrics | Loopback app/private monitoring network |
+| `/health` | Readiness | Loopback app/private monitoring network |
+| `/metrics` | Aggregate metrics | `Authorization: Bearer` with `METRICS_TOKEN` |
 
 ### MCP tools
 
@@ -376,7 +378,7 @@ The script enables trace export automatically. When using Compose directly, set 
 
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 - Grafana: [http://localhost:3000](http://localhost:3000), user `admin`, password `ADMIN_PASSWORD` from `.env`.
-- `/metrics`: active runs, ingestion queue, failed runs, model tokens and accounted model cost.
+- `/metrics`: active runs, ingestion queue, failed runs, model tokens and accounted model cost. Requests need `Authorization: Bearer <METRICS_TOKEN>`; Prometheus reads the token from a Compose secret. Without a configured token the endpoint returns 401.
 - OpenTelemetry: ASP.NET Core requests, outbound HTTP and application spans are exported to the collector when configured.
 - Structured logs: `docker compose logs --tail 100 web worker gateway tools`.
 - Authenticated `/api/admin/system`: database, cache, gateway, tools, vector store and worker heartbeat.

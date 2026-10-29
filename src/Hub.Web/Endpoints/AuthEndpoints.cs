@@ -18,7 +18,12 @@ public static class AuthEndpoints
     public static void Map(RouteGroupBuilder api)
     {
         api.MapGet("/me", async (CurrentUser user, CancellationToken ct) => Results.Ok((await user.Get(ct)).Profile()));
-        api.MapPost("/auth/logout", async (HttpContext context) => { await context.SignOutAsync(); return Results.Ok(); });
+        api.MapPost("/auth/logout", async (CurrentUser user, IdentityService identity, HttpContext context) =>
+        {
+            await identity.SignOut(user.Id, context.RequestAborted);
+            await context.SignOutAsync();
+            return Results.Ok();
+        });
         api.MapPost("/auth/password", async (PasswordRequest request, CurrentUser user, IdentityService identity, HttpContext context) =>
         {
             await identity.ChangePassword(user.Id, request.CurrentPassword, request.NewPassword, context.RequestAborted);

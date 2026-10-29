@@ -12,6 +12,20 @@ namespace Hub.Tests.Integration;
 public sealed class SecurityBoundaryTests
 {
     [Fact]
+    public async Task Metrics_require_the_scrape_token()
+    {
+        using var factory = new HubFactory(backgroundWorkers: false);
+        using var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/metrics")).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", new string('x', 64));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/metrics")).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", new string('m', 64));
+        var scrape = await client.GetAsync("/metrics");
+        Assert.Equal(HttpStatusCode.OK, scrape.StatusCode);
+        Assert.Contains("atlas_", await scrape.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Authentication_keys_honor_the_configured_isolated_storage_directory()
     {
         using var factory = new HubFactory();

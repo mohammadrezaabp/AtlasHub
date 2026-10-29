@@ -28,6 +28,7 @@ public sealed class HubFactory : WebApplicationFactory<Program>
             ["Bootstrap:Password"] = "Test-Admin-Password-2026!",
             ["Security:KeyPath"] = Path.Combine(directory, "keys"),
             ["Security:InternalToken"] = new string('x', 64),
+            ["Security:MetricsToken"] = new string('m', 64),
             ["Storage:Provider"] = "Local",
             ["Storage:Path"] = Path.Combine(directory, "uploads"),
             ["Features:Rewrite"] = "false",

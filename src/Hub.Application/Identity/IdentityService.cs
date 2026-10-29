@@ -59,6 +59,16 @@ public sealed class IdentityService(IHubSessionFactory sessions, IPasswordServic
             ?? throw new UseCaseException(ErrorKind.Unauthorized, "Your session has expired.");
     }
 
+    public async Task SignOut(Guid id, CancellationToken ct)
+    {
+        await using var db = await sessions.CreateAsync(ct);
+        var user = await db.FirstOrDefaultAsync(db.Users.Where(u => u.Id == id), ct);
+        if (user == null) return;
+        user.EndSessions();
+        db.Add(new AuditEntry { Actor = id.ToString(), Action = "SignOut" });
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task ChangePassword(Guid id, string currentPassword, string newPassword, CancellationToken ct)
     {
         await using var db = await sessions.CreateAsync(ct);

@@ -32,7 +32,7 @@ Source documents and historic local diagnostics were retained privately rather t
 - Credentials that have been shared outside a secret store should be rotated with their providers. This review does not revoke or replace local provider keys.
 - The default Compose deployment is loopback-only HTTP. Remote operation requires TLS, explicit reverse-proxy trust and network policies.
 - The local setup uses an administrative MinIO credential. Use a restricted bucket-scoped identity and managed secret delivery for a hardened deployment.
-- Prometheus metrics contain aggregate operational counters and are reachable from the local application endpoint; protect that endpoint in a remote deployment.
+- Prometheus metrics contain aggregate operational counters. `/metrics` requires a dedicated bearer token (`METRICS_TOKEN`), separate from the internal service token.
 - No content malware scanning, external penetration test or container OS vulnerability assessment was performed as part of this publication check. NuGet auditing does not cover container image packages or provider security.
 - Prompt injection defenses include server-enforced permissions, bounded tools and approval checks; model instructions alone do not eliminate prompt injection risk.
 - Budget admission is process-local. Scale-out requires shared atomic reservations. Database upgrades need an explicit migration process beyond development startup initialization.

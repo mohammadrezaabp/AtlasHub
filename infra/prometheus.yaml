@@ -5,3 +5,6 @@ scrape_configs:
     static_configs:
       - targets: ["web:8080"]
     metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/metrics_token

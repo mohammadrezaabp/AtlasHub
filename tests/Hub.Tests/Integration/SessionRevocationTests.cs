@@ -25,6 +25,21 @@ public sealed class SessionRevocationTests
     }
 
     [Fact]
+    public async Task Logout_revokes_the_session_on_the_server()
+    {
+        using var factory = new HubFactory();
+        using var first = factory.CreateClient();
+        using var second = factory.CreateClient();
+        await SignIn(first);
+        await SignIn(second);
+        Assert.Equal(HttpStatusCode.OK, (await first.PostAsJsonAsync("/api/auth/logout", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await first.GetAsync("/api/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await second.GetAsync("/api/me")).StatusCode);
+        await SignIn(second);
+        Assert.Equal(HttpStatusCode.OK, (await second.GetAsync("/api/me")).StatusCode);
+    }
+
+    [Fact]
     public async Task Disabling_a_member_revokes_access_and_admin_cannot_disable_self()
     {
         using var factory = new HubFactory();

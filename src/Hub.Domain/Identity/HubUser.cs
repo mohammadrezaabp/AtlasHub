@@ -52,4 +52,6 @@ public sealed class HubUser : IAggregateRoot
     }
 
     public void SetEnabled(bool enabled) { Enabled = enabled; SessionVersion++; }
+
+    public void EndSessions() => SessionVersion++;
 }

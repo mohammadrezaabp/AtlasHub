@@ -6,9 +6,14 @@ namespace Hub.Infrastructure.Security;
 
 public static class InternalRequest
 {
-    public static bool IsAuthorized(string? header, IConfiguration config)
+    public static bool IsAuthorized(string? header, IConfiguration config) => Matches(header, config["Security:InternalToken"]);
+
+    public static bool IsMetricsScrape(string? authorization, IConfiguration config) =>
+        authorization?.StartsWith("Bearer ", StringComparison.Ordinal) == true && Matches(authorization["Bearer ".Length..], config["Security:MetricsToken"]);
+
+    private static bool Matches(string? header, string? expected)
     {
-        var expected = config["Security:InternalToken"] ?? "";
+        expected ??= "";
         return expected.Length >= 32 && header != null && CryptographicOperations.FixedTimeEquals(
             SHA256.HashData(Encoding.UTF8.GetBytes(header)), SHA256.HashData(Encoding.UTF8.GetBytes(expected)));
     }

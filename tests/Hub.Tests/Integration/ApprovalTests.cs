@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using static Hub.Tests.Support.ApiTestClient;
 
@@ -69,4 +72,37 @@ public sealed class ApprovalTests
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/approvals/{approval}", new { approve = true })).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await member.GetAsync($"/api/documents/{id}/download")).StatusCode);
     }
+
+    [Fact]
+    public async Task Agent_deletion_proposals_must_target_a_document_the_user_named()
+    {
+        using var factory = new HubFactory(backgroundWorkers: false);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<HubDb>();
+        var admin = await db.Users.SingleAsync();
+        var named = Document.Create(admin, "Travel policy", "travel-policy.md", "a", "text/markdown", DocumentVisibility.Private, admin.Department);
+        var other = Document.Create(admin, "Payroll ledger", "payroll.csv", "b", "text/csv", DocumentVisibility.Private, admin.Department);
+        db.Documents.AddRange(named, other);
+        await db.SaveChangesAsync();
+        var models = new StubModelClient();
+        var tools = new RecordingToolClient();
+        var loop = new AgentToolLoop(models, tools, new RecordingEventStore(), factory.Services.GetRequiredService<IHubSessionFactory>());
+        models.ToolResponses.Enqueue(DeletionCall(other.Id));
+        await loop.Execute([], "Please delete the travel policy", Guid.NewGuid(), admin.Id, default);
+        Assert.Empty(tools.Calls);
+        models.ToolResponses.Enqueue(DeletionCall(named.Id));
+        await loop.Execute([], "Please delete the travel policy", Guid.NewGuid(), admin.Id, default);
+        Assert.Equal(named.Id.ToString(), Assert.Single(tools.Calls).Arguments["documentId"]!.ToString());
+    }
+
+    private static JsonObject DeletionCall(Guid documentId) => new()
+    {
+        ["role"] = "assistant",
+        ["tool_calls"] = new JsonArray(new JsonObject
+        {
+            ["id"] = "call-1",
+            ["type"] = "function",
+            ["function"] = new JsonObject { ["name"] = "propose_document_deletion", ["arguments"] = $"{{\"documentId\":\"{documentId}\"}}" }
+        })
+    };
 }
