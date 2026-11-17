@@ -5,7 +5,7 @@ COPY NuGet.Config ./
 COPY src/ ./src/
 RUN for project in Hub.Web Hub.Gateway Hub.Tools Hub.Worker; do dotnet publish src/$project/$project.csproj -c Release -o /out/$project --nologo || exit 1; done
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS runtime
 ARG PROJECT=Hub.Web
 ENV HUB_ASSEMBLY=${PROJECT}.dll ASPNETCORE_HTTP_PORTS=8080
 WORKDIR /app
